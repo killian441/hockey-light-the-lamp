@@ -48,18 +48,15 @@ team_ids = {"devils":1,
 
 #URL Templates
 """BASE_URL.format(gamenumber)"""
-BASE_URL = 'http://statsapi.web.nhl.com/api/v1/game/{0}/feed/live'
+BASE_URL = 'http://statsapi.web.nhl.com/api/v1/game/{0}/feed/live/'
 SCHEDULE_URL = 'http://statsapi.web.nhl.com/api/v1/schedule/'
 
 # Local Directory
 PWD = os.path.join(os.path.dirname(__file__))
 
-def get_game_url(gamenumber=None, team="avalanche"):
-    '''Returns a string for the URL pointing to the game. Given a gamenumber 
-       (i.e. 2017020285) no other parameter is needed. Lacking a gamenumber,
-       then a team is required to find the scheduled game for today.'''
-    if gamenumber:
-        return BASE_URL.format(gamenumber)
+def get_game_number(team="avalanche"):
+    '''Returns a int of the gamenumber (i.e. 2017020285).
+       A team is required to find the scheduled game for today.'''
 
     url = SCHEDULE_URL
     data = urlopen(url)
@@ -76,30 +73,58 @@ def get_game_url(gamenumber=None, team="avalanche"):
             gamenumber = game['gamePk']
             break
     if gamenumber:
-        return BASE_URL.format(gamenumber)
+        return gamenumber
     else:
         raise Exception("Cannot find game today for specified team")
 
-def open_game_url(url=None):
+def open_game_url(gamenumber=None, timestamp=None):
     '''Open url, verify that the game is live and then return the current
-       gamenumber, timestamp, and score.'''
-    if not url:
-        url = get_game_url()
+       gamenumber, timestamp, score, and new_goal'''
 
-    resp = urlopen(url)
-    raw_data = resp.read()
-    data = json.loads(raw_data)
+    #https://statsapi.web.nhl.com/api/v1/game/2017020285/feed/live/diffPatch?site=en_nhl&startTimecode=20171117_044625
+    if not gamenumber:
+        url = BASE_URL.format(get_game_number())
+    else:
+        url = BASE_URL.format(gamenumber)
 
-    if data['gameData']['status']['abstractGameState'] != 'Live':
-        raise Exception('Game is not live')
+    new_goal = False
+    score = {}
 
-    gamenumber = data['gamePk']
-    timestamp = data['metaData']['timeStamp']
+    if not timestamp:
+        resp = urlopen(url)
+        raw_data = resp.read()
+        data = json.loads(raw_data)
 
-    goals = data['liveData']['plays']['currentPlay']['about']['goals']
+        if data['gameData']['status']['abstractGameState'] != 'Live':
+            raise Exception('Game is not live')
 
-    return(gamenumber, timestamp, goals)
+        gamenumber = data['gamePk']
+        timestamp = data['metaData']['timeStamp']
 
-    
+        score = data['liveData']['plays']['currentPlay']['about']['goals']
 
+        return (gamenumber, timestamp, score, new_goal)
+    else:
+        resp = urlopen(url+'diffPatch?site=en_nhl&startTimecode='+timestamp)
+        raw_data = resp.read()
+        data = json.loads(raw_data)
 
+        for datum in data[0]['diff']:
+            if datum['op'] == 'replace':
+                if datum['path'] == '/metaData/timeStamp':
+                    timestamp = datum['value']
+            elif datum['op'] == 'add':
+                try:
+                    if datum['value']['result']['eventTypeId'] == 'GOAL':
+                        new_goal = True
+                        score = datum['value']['about']['goals']
+                    except KeyError:
+                        pass
+
+        return (gamenumber, timestamp, score, new_goal)
+
+def main():
+    # my code here
+
+if __name__ == "__main__":
+    main()
